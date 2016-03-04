@@ -5,8 +5,10 @@
 
 USE_READLINE := TRUE
 
+CC=gcc
+LINKER=gcc
 CFLAGS = -g -c -Wall -pedantic -Dlinux --std=c99 -D_POSIX_C_SOURCE=200112L -D_BSD_SOURCE -I/usr/local/include/
-LFLAGS = -lcpgplot -lpgplot -lm -L/usr/local/lib/
+LFLAGS = -lcpgplot -lpgplot -lm -L/usr/local/lib/ -lgfortran -lX11
 
 ifeq ($(shell uname),Darwin)
 	LINKER = gcc

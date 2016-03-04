@@ -195,12 +195,12 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
     // Plot layout
     const float plot_left = 0.15;
     const float plot_right = 0.85;
-    const float plot_data_bottom = 0.10;
-    const float plot_data_top = 0.79;
-    const float plot_window_bottom = 0.8;
-    const float plot_window_top = 0.95;
-    const float plot_scale_left = 0.86;
-    const float plot_scale_right = 0.88;
+    const float plot_data_bottom = 0.075+0.14;
+    const float plot_data_top = 0.5925+0.14;
+    const float plot_window_bottom = 0.6+0.14;
+    const float plot_window_top = 0.7125+0.14;
+    const float plot_scale_top = 0.88;
+    const float plot_scale_bottom = 0.86;
     const size_t plot_scale_steps = 50;
     const float plot_label_margin = 4;
 
@@ -215,12 +215,12 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
     if (cpgopen(device) <= 0)
         error_jump(pgplot_open_error, ret, "Unable to open PGPLOT window");
 
-    cpgpap(6, 0.8);
+    cpgpap(9.5, 0.8);
     cpgask(0);
     cpgslw(1);
     cpgsfs(2);
     cpgscf(2);
-    cpgsch(1.6);
+    cpgsch(1.0);
 
     // The same buffer used for the data, window, and scale images.
     // The data image is always the largest
@@ -247,10 +247,26 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
         float tr[] = { time_min - x_scale, x_scale, 0, freq_min - y_scale, 0, y_scale };
 
         cpgimag(image, time_steps, freq_steps, 1, time_steps, 1, freq_steps, min_amplitude, max_amplitude, tr);
-
         cpgswin(time_min / 86400, time_max / 86400, freq_min, freq_max);
-        cpgbox("bcstn", 0, 0, "bcstnv", 0, 0);
+        cpgbox("bcstn", 0, 0, "bstnv", 0, 0);
+        cpgbox("0", 0, 0, "c", 0, 0);
         cpgmtxt("B", 2.3, 0.5, 0.5, "Time (days)");
+
+        double period_ticks[] = {110, 120, 135, 150, 170, 200, 250, 350, 500, 1000, 10000};
+        size_t period_tick_count = sizeof(period_ticks) / sizeof(double);
+        cpgswin(0, 1, freq_min, freq_max);
+        for (size_t i = 0; i < period_tick_count; i++)
+        {
+            char label[128];
+            double period = period_ticks[i];
+            double freq = 1e6/period;
+            snprintf(label, 127, "%.0f", period);
+            cpgmove(0.9925, freq);
+            cpgdraw(1, freq);
+            cpgmtxt("RV", 0.5, (freq - freq_min) / (freq_max - freq_min), 0, label);
+        }
+
+        cpgmtxt("r", 4, 0.5, 0.5, "Period (s)");
     }
 
     // Window
@@ -287,19 +303,19 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
 
     // Scale
     {
-        cpgsvp(plot_scale_left, plot_scale_right, plot_data_bottom, plot_window_top);
+        cpgsvp(plot_left, plot_right, plot_scale_bottom, plot_scale_top);
 
         // Reuse t
         float ampl_scale = (max_amplitude - min_amplitude) / (plot_scale_steps - 1);
         for (size_t i = 0; i < plot_scale_steps; i++)
             image[i] = min_amplitude + i * ampl_scale;
 
-        float tr[] = { -0.5, 1, 0, min_amplitude - ampl_scale, 0, ampl_scale, 0, 1 };
-        cpgswin(0, 1, min_amplitude, max_amplitude);
+        float tr[] = { min_amplitude - ampl_scale, 0, ampl_scale, -0.5, 1, 0, 0, 1 };
+        cpgswin(min_amplitude, max_amplitude, 0, 1);
         cpgimag(image, 1, plot_scale_steps, 1, 1, 1, plot_scale_steps, min_amplitude, max_amplitude, tr);
 
-        cpgbox("bc", 0, 0, "bcsmv", 0, 0);
-        cpgmtxt("r", plot_label_margin - 1, 0.5, 0.5, "Amplitude (mma)");
+        cpgbox("bcsm", 0, 0, "bc", 0, 0);
+        cpgmtxt("t", 2, 0.5, 0.5, "Amplitude (mma)");
     }
     printf("Done.\n");
 
