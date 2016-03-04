@@ -195,12 +195,14 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
     // Plot layout
     const float plot_left = 0.15;
     const float plot_right = 0.85;
-    const float plot_data_bottom = 0.075+0.14;
-    const float plot_data_top = 0.5925+0.14;
-    const float plot_window_bottom = 0.6+0.14;
-    const float plot_window_top = 0.7125+0.14;
-    const float plot_scale_top = 0.88;
-    const float plot_scale_bottom = 0.86;
+    const float plot_ts_top = 0.225;
+    const float plot_ts_bottom = 0.075;
+    const float plot_data_bottom = 0.075+0.18;
+    const float plot_data_top = 0.5925+0.18;
+    const float plot_window_bottom = 0.6+0.18;
+    const float plot_window_top = 0.7125+0.18;
+    const float plot_scale_top = 0.92;
+    const float plot_scale_bottom = 0.90;
     const size_t plot_scale_steps = 50;
     const float plot_label_margin = 4;
 
@@ -230,6 +232,38 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
 
     set_color_table();
 
+    // Time series panel
+    {
+        float *temp_time = calloc(data->obs_count, sizeof(float));
+        float *temp_mmi = calloc(data->obs_count, sizeof(float));
+        double min_mmi = data->mmi[0];
+        double max_mmi = data->mmi[0];
+
+        for (size_t i = 0; i < data->obs_count; i++)
+        {
+            temp_time[i] = data->time[i];
+            temp_mmi[i] = data->mmi[i];
+            min_mmi = fmin(min_mmi, data->mmi[i]);
+            max_mmi = fmax(max_mmi, data->mmi[i]);
+        }
+
+        double mid_mmi = (min_mmi + max_mmi) / 2;
+        double range_mmi = (max_mmi - min_mmi) / 2;
+        printf("%f %f\n", mid_mmi, range_mmi);
+        min_mmi = mid_mmi - 1.2 * range_mmi;
+        max_mmi = mid_mmi + 1.2 * range_mmi;
+
+        cpgsvp(plot_left, plot_right, plot_ts_bottom, plot_ts_top);
+        cpgswin(time_min, time_max, min_mmi, max_mmi);
+        cpgsci(4);
+        cpgpt(data->obs_count, temp_time, temp_mmi, 229);
+        cpgsci(1);
+        cpgswin(time_min / 3600, time_max / 3600, min_mmi, max_mmi);
+        cpgbox("bcstn", 0, 0, "bcstnv", 0, 0);
+        cpgmtxt("l", plot_label_margin, 0.5, 0.5, "(mmi)");
+        cpgmtxt("B", 2.3, 0.5, 0.5, "Time (hours)");
+    }
+
     // Data panel
     {
         printf("Generating spectrogram...\n");
@@ -248,18 +282,20 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
 
         cpgimag(image, time_steps, freq_steps, 1, time_steps, 1, freq_steps, min_amplitude, max_amplitude, tr);
         cpgswin(time_min / 86400, time_max / 86400, freq_min, freq_max);
-        cpgbox("bcstn", 0, 0, "bstnv", 0, 0);
+        cpgbox("bcst", 0, 0, "bstnv", 0, 0);
         cpgbox("0", 0, 0, "c", 0, 0);
-        cpgmtxt("B", 2.3, 0.5, 0.5, "Time (days)");
 
         double period_ticks[] = {110, 120, 135, 150, 170, 200, 250, 350, 500, 1000, 10000};
         size_t period_tick_count = sizeof(period_ticks) / sizeof(double);
         cpgswin(0, 1, freq_min, freq_max);
         for (size_t i = 0; i < period_tick_count; i++)
         {
-            char label[128];
             double period = period_ticks[i];
             double freq = 1e6/period;
+            if (freq < freq_min || freq > freq_max)
+                continue;
+
+            char label[128];
             snprintf(label, 127, "%.0f", period);
             cpgmove(0.9925, freq);
             cpgdraw(1, freq);
@@ -317,6 +353,25 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
         cpgbox("bcsm", 0, 0, "bc", 0, 0);
         cpgmtxt("t", 2, 0.5, 0.5, "Amplitude (mma)");
     }
+
+    // Window size indicators
+    {
+        double half_dft = 1.0 / (time_steps - 1) / 2;
+        double half_mmi = time_window_width / (time_max - time_min) / 2;
+        cpgsvp(plot_left, plot_right, 0, 1);
+        cpgswin(0, 1, 0, 1);
+        cpgsci(2);
+        double indicator_offset = 0.01;
+        cpgmove(0.5 - half_mmi, plot_ts_top - indicator_offset);
+        cpgdraw(0.5 - half_mmi, plot_ts_top + indicator_offset);
+        cpgdraw(0.5 - half_dft, plot_data_bottom - indicator_offset);
+        cpgdraw(0.5 - half_dft, plot_data_bottom + indicator_offset);
+        cpgmove(0.5 + half_mmi, plot_ts_top - indicator_offset);
+        cpgdraw(0.5 + half_mmi, plot_ts_top + indicator_offset);
+        cpgdraw(0.5 + half_dft, plot_data_bottom - indicator_offset);
+        cpgdraw(0.5 + half_dft, plot_data_bottom + indicator_offset);
+    }
+
     printf("Done.\n");
 
     free(image);
