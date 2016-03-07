@@ -108,7 +108,29 @@ static void set_color_table()
     //cpgsitf(2); // Use a sqrt mapping between value and colour
 }
 
-int generate_spectrogram_image(float *image, double window_width,
+void generate_window_shape(float *window, float *time, bool gaussian, double window_center, double window_width, size_t count)
+{
+    // Sample the windowed data in this slice
+    for (size_t j = 0; j < count; j++)
+    {
+        if (gaussian)
+        {
+            // Gaussian window (Gabor transform)
+            double a = 2 * (window_center - time[j]) / window_width;
+            window[j] = exp(-M_PI * a * a);
+        }
+        else
+        {
+            // Boxcar (square) window
+            if ((time[j] >= window_center - window_width / 2) && (time[j] <= window_center + window_width / 2))
+                window[j] = 1;
+            else
+                window[j] = 0;
+        }
+    }
+}
+
+int generate_spectrogram_image(float *image, bool gaussian, double window_width,
     double *time, double *mmi, size_t count,
     double time_min, double time_max, size_t time_steps,
     double freq_min, double freq_max, size_t freq_steps)
@@ -132,11 +154,26 @@ int generate_spectrogram_image(float *image, double window_width,
         size_t n = 0;
         for (size_t j = 0; j < count; j++)
         {
-            if ((time[j] >= mid_time - window_width / 2) && (time[j] <= mid_time + window_width / 2))
+            if (gaussian)
             {
-                temp_time[n] = time[j];
-                temp_mmi[n] = mmi[j];
-                n++;
+                // Gaussian window (Gabor transform)
+                double a = 2 * (mid_time - time[j]) / window_width;
+                //if (fabs(a) < 1.9143)
+                {
+                    temp_time[n] = time[j];
+                    temp_mmi[n] = mmi[j] * exp(-M_PI * a * a);
+                    n++;
+                }
+            }
+            else
+            {
+                // Boxcar (square) window
+                if ((time[j] >= mid_time - window_width / 2) && (time[j] <= mid_time + window_width / 2))
+                {
+                    temp_time[n] = time[j];
+                    temp_mmi[n] = mmi[j];
+                    n++;
+                }
             }
         }
 
@@ -167,7 +204,9 @@ temp_time_alloc_error:
     return ret;
 }
 
-int colorplot(const char *ts_path, double time_window_width, double min_amplitude, double max_amplitude, double freq_min, double freq_max, size_t freq_steps, size_t time_steps, const char *output_ps)
+int colorplot(const char *ts_path, bool gaussian, double time_window_width,
+    double min_amplitude, double max_amplitude, double freq_min, double freq_max, size_t freq_steps,
+    size_t time_steps, const char *output_ps)
 {
     int ret = 0;
 
@@ -195,14 +234,14 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
     // Plot layout
     const float plot_left = 0.15;
     const float plot_right = 0.85;
-    const float plot_ts_top = 0.225;
+    const float plot_ts_top = 0.2475;
     const float plot_ts_bottom = 0.075;
-    const float plot_data_bottom = 0.075+0.18;
-    const float plot_data_top = 0.5925+0.18;
-    const float plot_window_bottom = 0.6+0.18;
-    const float plot_window_top = 0.7125+0.18;
-    const float plot_scale_top = 0.92;
+    const float plot_data_bottom = 0.255;
+    const float plot_data_top = 0.7725;
+    const float plot_window_bottom = 0.78;
+    const float plot_window_top = 0.8925;
     const float plot_scale_bottom = 0.90;
+    const float plot_scale_top = 0.92;
     const size_t plot_scale_steps = 50;
     const float plot_label_margin = 4;
 
@@ -236,6 +275,18 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
     {
         float *temp_time = calloc(data->obs_count, sizeof(float));
         float *temp_mmi = calloc(data->obs_count, sizeof(float));
+
+        const int window_points = 1000;
+        float *window_time = calloc(window_points, sizeof(float));
+        float *window_value = calloc(window_points, sizeof(float));
+        double dt = (time_max - time_min) / (window_points - 1);
+
+        for (size_t i = 0; i < window_points; i++)
+            window_time[i] = time_min + i * dt;
+
+        // Plot window shape
+        generate_window_shape(window_value, window_time, gaussian, (time_min + time_max) / 2, time_window_width, window_points);
+
         double min_mmi = data->mmi[0];
         double max_mmi = data->mmi[0];
 
@@ -254,10 +305,14 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
         max_mmi = mid_mmi + 1.2 * range_mmi;
 
         cpgsvp(plot_left, plot_right, plot_ts_bottom, plot_ts_top);
-        cpgswin(time_min, time_max, min_mmi, max_mmi);
+        cpgswin(time_min, time_max, -1.2, 1.2);
+        cpgsci(2);
+        cpgline(window_points, window_time, window_value);
         cpgsci(4);
+        cpgswin(time_min, time_max, min_mmi, max_mmi);
         cpgpt(data->obs_count, temp_time, temp_mmi, 229);
         cpgsci(1);
+
         cpgswin(time_min / 3600, time_max / 3600, min_mmi, max_mmi);
         cpgbox("bcstn", 0, 0, "bcstnv", 0, 0);
         cpgmtxt("l", plot_label_margin, 0.5, 0.5, "(mmi)");
@@ -267,7 +322,7 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
     // Data panel
     {
         printf("Generating spectrogram...\n");
-        generate_spectrogram_image(image, time_window_width,
+        generate_spectrogram_image(image, gaussian, time_window_width,
             data->time, data->mmi, data->obs_count,
             time_min, time_max, time_steps,
             freq_min * 1e-6, freq_max * 1e-6, freq_steps);
@@ -316,9 +371,9 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
 
         // Reuse the data intensity array for calculating the window
         for (size_t j = 0; j < data->obs_count; j++)
-            data->mmi[j] = max_amplitude * sin(2 * M_PI * dft_window_freq * 1e-6 * data->time[j]);
+            data->mmi[j] = sin(2 * M_PI * dft_window_freq * 1e-6 * data->time[j]);
 
-        generate_spectrogram_image(image, time_window_width,
+        generate_spectrogram_image(image, gaussian, time_window_width,
             data->time, data->mmi, data->obs_count,
             time_min, time_max, time_steps,
             window_freq_min * 1e-6, window_freq_max * 1e-6, window_freq_steps);
@@ -327,11 +382,15 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
         cpgmtxt("l", plot_label_margin, 0.5, 0.5, "Window");
         cpgswin(time_min, time_max, window_freq_min, window_freq_max);
 
+        float window_intensity_max = image[0];
+        for (size_t i = 0; i < time_steps * window_freq_steps; i++)
+            window_intensity_max = fmax(window_intensity_max, image[i]);
+
         float x_scale = (time_max - time_min) / (time_steps - 1);
         float y_scale = 2 * dft_window_half_width / (window_freq_steps - 1);
         float tr[] = { time_min - x_scale, x_scale, 0, window_freq_min - y_scale, 0, y_scale };
 
-        cpgimag(image, time_steps, window_freq_steps, 1, time_steps, 1, window_freq_steps, min_amplitude, max_amplitude, tr);
+        cpgimag(image, time_steps, window_freq_steps, 1, time_steps, 1, window_freq_steps, 0, window_intensity_max, tr);
 
         cpgswin(time_min / 86400, time_max / 86400, -dft_window_half_width, dft_window_half_width);
         cpgbox("bcst", 0, 0, "bcstnv", 0, 0);
@@ -354,24 +413,6 @@ int colorplot(const char *ts_path, double time_window_width, double min_amplitud
         cpgmtxt("t", 2, 0.5, 0.5, "Amplitude (mma)");
     }
 
-    // Window size indicators
-    {
-        double half_dft = 1.0 / (time_steps - 1) / 2;
-        double half_mmi = time_window_width / (time_max - time_min) / 2;
-        cpgsvp(plot_left, plot_right, 0, 1);
-        cpgswin(0, 1, 0, 1);
-        cpgsci(2);
-        double indicator_offset = 0.01;
-        cpgmove(0.5 - half_mmi, plot_ts_top - indicator_offset);
-        cpgdraw(0.5 - half_mmi, plot_ts_top + indicator_offset);
-        cpgdraw(0.5 - half_dft, plot_data_bottom - indicator_offset);
-        cpgdraw(0.5 - half_dft, plot_data_bottom + indicator_offset);
-        cpgmove(0.5 + half_mmi, plot_ts_top - indicator_offset);
-        cpgdraw(0.5 + half_mmi, plot_ts_top + indicator_offset);
-        cpgdraw(0.5 + half_dft, plot_data_bottom - indicator_offset);
-        cpgdraw(0.5 + half_dft, plot_data_bottom + indicator_offset);
-    }
-
     printf("Done.\n");
 
     free(image);
@@ -385,18 +426,27 @@ load_failed_error:
 
 int main(int argc, char *argv[])
 {
-    if (argc >= 9)
+    if (argc >= 10)
     {
         const char *tsfile = argv[1];
-        double window_width = atof(argv[2]);
-        double ampl_min = atof(argv[3]);
-        double ampl_max = atof(argv[4]);
-        double freq_min = atof(argv[5]);
-        double freq_max = atof(argv[6]);
-        double freq_steps = atoi(argv[7]);
-        double time_steps = atoi(argv[8]);
-        const char *psfile = argc == 9 ? NULL : argv[9];
-        return colorplot(tsfile, window_width, ampl_min, ampl_max,
+        bool gaussian = false;
+        if (!strcmp(argv[2], "gaussian"))
+            gaussian = true;
+        else if (strcmp(argv[2], "boxcar"))
+        {
+            printf("Invalid window type: %s\n", argv[2]);
+            return 1;
+        }
+
+        double window_width = atof(argv[3]);
+        double ampl_min = atof(argv[4]);
+        double ampl_max = atof(argv[5]);
+        double freq_min = atof(argv[6]);
+        double freq_max = atof(argv[7]);
+        double freq_steps = atoi(argv[8]);
+        double time_steps = atoi(argv[9]);
+        const char *psfile = argc == 10 ? NULL : argv[10];
+        return colorplot(tsfile, gaussian, window_width, ampl_min, ampl_max,
             freq_min, freq_max, freq_steps, time_steps, psfile);
     }
     else
@@ -404,6 +454,7 @@ int main(int argc, char *argv[])
         printf("tsspectrogram tsfile window_width min_amplitude max_amplitude freq_min freq_max freq_steps time_steps [output_ps]\n\n");
         printf("Arguments:\n");
         printf("    tsfile: timeseries data file.  Space delimited with time in days and amplitude in mmi.\n");
+        printf("    window_type: boxcar or gaussian\n");
         printf("    window_width: Width of the spectrogram window in seconds.\n");
         printf("    ampl_min: Minimum DFT amplitude to display in mma.\n");
         printf("    ampl_max: Maximum DFT amplitude to display in mma.\n");
